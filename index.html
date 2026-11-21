@@ -463,7 +463,7 @@
 .m42-toolbar .m42-search{grid-column:span 2}
 .m42-toolbar input,.m42-toolbar select{width:100%;min-width:0}
 .m42-actions{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 18px}
-.m42-table{overflow:auto;max-width:100%}.m42-table table{min-width:1180px}
+.m42-table{overflow:auto;max-width:100%}.m42-table table{min-width:1620px}
 .m42-table td{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:850px){.m42-toolbar .m42-search{grid-column:span 1}}
 </style>
@@ -1502,7 +1502,8 @@ function igDetail(idx){const x=ING_ROWS[Number(idx)];if(!x)return;const due=x.st
 function igExport(){const rows=igFiltered(),data=[['Material','Descripcion','Marca','Extension','Origen MARA','Plan SAS actual','Pedido Importer','Posicion','Estado SAP','Cantidad pedido','Cantidad entrega SAP','Saldo por recibir','Estado de seguimiento','Fe Ped Imp','Fe Estimada CD SAP','Fecha CD mostrada','Fuente de fecha','Fe Ingreso Stk CD','Modalidad','Factura','Doc embarque','Doc ingreso CD','Solped importer'],...rows.map(x=>[x.mat,x.desc,x.fab,x.ext,x.origen,x.plan,x.pedido,x.pos,x.estado,x.cant,x.recibido,x.saldo??'',igStatus(x),x.fPedido,x.feCD,x.fechaObjetivo,x.tipoFecha,x.fIngreso,igMode(x.modal),x.factura,x.embarque,x.docIngreso,x.solped])];
  exportExcel365(data,{title:'Ingresos y Tracking / ZMM_TRACKPE',file:'AutoPartsBI_V196_Ingresos_Tracking_LOCAL',summary:[['Partidas exportadas',rows.length],['Registros SAP fuente',INGDATA.sourceRows],['Corte importaciones',INGDATA.cut]],filters:[['Marca',IG.brand],['Estado',IG.status],['Plan',IG.plan],['Meses',IG.months.length?IG.months.map(x=>IG_MONTHS[x-1]).join(', '):'Todos'],['Modalidad',IG.modal],['Consulta',IG.query]],source:'ZMM_TRACKPE + MARA Livianos + Mantenedor SAS',notes:['SAP Fe. Estimada CD prevalece, incluso en sábado o domingo.','Sin fecha SAP: pedido +20 días hábiles, sin contar sábados ni domingos.','La recepción real se toma solo de Fe. Ingreso Stk CD.','No es publicación externa ni actualización SAP en vivo.']});}
 
-/* AUTOPARTS_R43_MAESTRO_MAPAS_COMPLETOS: solo vista Maestro; R4/R42 originales intactos. */
+/* AUTOPARTS_R43_MAESTRO_MAPAS_COMPLETOS: base histórica preservada. */
+/* AUTOPARTS_R431_S4_POR_MATERIAL: asignaciones SAP y SAS independientes por material exacto. */
 const M43 = window.AUTOPARTS_R43_MAPAS || {schema:0,edges:[],extra:[],estado:'SIN_VALIDAR'};
 const M43_EDGES = M43.edges || [];
 const M43_TYPES = {'0':'Código base','1':'Reemplazo','2':'Alternativo','3':'Genérico','4':'Complementario','5':'Opcional'};
@@ -1510,7 +1511,7 @@ const M43_CODE_EDGES = new Map();
 const M43_CODE_META = new Map();
 function m43MapKey(v) {let x=String(v??'').trim();return /^0*\d+$/.test(x)?(x.replace(/^0+/,'')||'0'):x.toUpperCase()}
 function m43Meta(code){
- if(!M43_CODE_META.has(code))M43_CODE_META.set(code,{mapas:new Set(),s4:new Set(),tipos:new Set(),conexos:new Set(),roles:new Set()});
+ if(!M43_CODE_META.has(code))M43_CODE_META.set(code,{mapas:new Set(),s4SAP:new Set(),tipos:new Set(),conexos:new Set(),roles:new Set()});
  return M43_CODE_META.get(code);
 }
 for(const r of M43_EDGES){
@@ -1519,15 +1520,26 @@ for(const r of M43_EDGES){
   if(!codigo)continue;
   if(!M43_CODE_EDGES.has(codigo))M43_CODE_EDGES.set(codigo,[]);
   M43_CODE_EDGES.get(codigo).push(r);
-  const m=m43Meta(codigo);m.mapas.add(mapa);if(s4)m.s4.add(s4);if(tipo)m.tipos.add(tipo);
+  const m=m43Meta(codigo);m.mapas.add(mapa);if(rol==='PRINCIPAL'&&s4)m.s4SAP.add(String(s4).trim());if(tipo)m.tipos.add(tipo);
   m.roles.add(rol);if(otro)m.conexos.add(otro);
  }
 }
 const M42 = window.AUTOPARTS_MARC3401 || {schema:1,centro:'3401',codes:[],estado:'NO_VERIFICADO'};
 const M42_CODES = new Set(M42.codes || []);
-const Q42 = {search:'',centro:'all',marca:'all',linea:'all',plan:'all',origen:'all',relacion:'all',fuente:'all',tipo:'all',pagina:1};
+const Q42 = {search:'',centro:'all',marca:'all',linea:'all',plan:'all',origen:'all',relacion:'all',fuente:'all',tipo:'all',estadoS4:'all',pagina:1};
 const M43_KNOWN_IDS = new Set(D.products.map(p=>p.id));
 const M43_ALL = [...D.products, ...((M43.extra||[]).map(id=>({id,name:'Referencia oficial sin ficha MARA/SAS',brand:'SIN FICHA',line:'',ext:id.includes(':')?id.split(':').pop():'',origin:'',mara:false,sas:false,sasData:{},stock:{},centers:[],sale:{total:0},maps:[]})))];
+function m431S4(p){
+ const m=M43_CODE_META.get(p.id),direct=m?[...m.s4SAP]:[];
+ const sas=String(p.sasData?.s4SAS??'').trim();
+ if(direct.length>1)return {sap:'REVISAR: '+direct.length+' S4',sas,estado:'MÚLTIPLE SAP',detalle:direct};
+ const sap=direct[0]||'';
+ let estado='SIN AMBOS S4';
+ if(sap&&sas)estado=m43MapKey(sap)===m43MapKey(sas)?'COINCIDE':'DIFERENCIA';
+ else if(sap)estado='SIN S4 MANTENEDOR';
+ else if(sas)estado='SIN S4 SAP';
+ return {sap,sas,estado,detalle:direct};
+}
 function m43State(p){return p.mara&&p.sas?'MARA + SAS':p.mara?'Solo MARA':p.sas?'Solo SAS':'Solo referencia MAPAS'}
 function m42Options(label,key,options){
  return `<div class="field"><label>${$html(label)}</label><select data-m42-key="${key}">${options.map(([v,t])=>`<option value="${$html(v)}" ${String(Q42[key])===String(v)?'selected':''}>${$html(t)}</option>`).join('')}</select></div>`;
@@ -1536,7 +1548,7 @@ function m42Unique(key){return [...new Set(M43_ALL.map(key).filter(Boolean))].so
 function m43Search(p,q){
  if(!q)return true;
  const m=M43_CODE_META.get(p.id),s=p.sasData||{};
- const text=[p.id,p.name,p.brand,p.line,p.ext,p.origin,s.plan,s.mapSAS,s.s4SAS,...(m?[...m.mapas,...m.s4,...m.conexos]:[])].join(' ');
+ const text=[p.id,p.name,p.brand,p.line,p.ext,p.origin,s.plan,s.mapSAS,s.s4SAS,...(m?[...m.mapas,...m.s4SAP,...m.conexos]:[])].join(' ');
  return norm(text).includes(q) || (m && m.mapas.has(m43MapKey(q))) || m43MapKey(s.mapSAS)===m43MapKey(q);
 }
 function m42Filtered(){
@@ -1554,6 +1566,7 @@ function m42Filtered(){
   if(Q42.relacion==='sas_sin_oficial'&&(!s.mapSAS||hasOfficial))return false;
   if(Q42.fuente!=='all'&&m43State(p)!==Q42.fuente)return false;
   if(Q42.tipo!=='all'&&!(m&&m.tipos.has(Q42.tipo)))return false;
+  if(Q42.estadoS4!=='all'&&m431S4(p).estado!==Q42.estadoS4)return false;
   if(!m43Search(p,q))return false;
   return true;
  });
@@ -1561,7 +1574,7 @@ function m42Filtered(){
 function m42MapSet(p,i){
  const m=M43_CODE_META.get(p.id);
  if(!m)return [];
- const arr=i===0?m.mapas:i===1?m.s4:i===2?m.tipos:m.conexos;
+ const arr=i===0?m.mapas:i===1?m.s4SAP:i===2?m.tipos:m.conexos;
  return [...arr].sort((a,b)=>String(a).localeCompare(String(b),'es',{numeric:true}));
 }
 function m42Cell(v){return $html(v==null||v===''?'—':v)}
@@ -1572,7 +1585,9 @@ function m42Exports(kind){
  const filters=Object.entries(Q42).filter(([k])=>k!=='pagina').map(([k,v])=>[k,String(v)]);
  const notes=['Relaciones MAPAS/S4: se conservan extremos principal y relacionado, sin inferir reciprocidad o vigencia.',
   'La extensión MARC 3401 NO determina existencia en toda la sociedad 3400. Referencia oficial no equivale a código validado en MARA.',
-  'MAPA SAS y MAPA oficial son fuentes independientes; el tipo de relación viene del SAP oficial.'];
+  'MAPA SAS y MAPA oficial son fuentes independientes; el tipo de relación viene del SAP oficial.',
+  'S4 SAP se asigna solo al MATERIAL PRINCIPAL de su fila oficial; nunca se hereda desde el material relacionado ni desde el MAPA.',
+  'S4 Mantenedor proviene de cod_s4 de SAS del material exacto; las diferencias se reportan sin sobrescribir valores.'];
  let rows=[];
  if(kind==='relaciones'){
   rows=[['Fila RAW','Sociedad','MAPA oficial','S4 oficial','Tipo relación','Nombre tipo','Material principal','Principal en MARA','Principal en SAS','Principal en 3401','Material relacionado','Relacionado en MARA','Relacionado en SAS','Relacionado en 3401']];
@@ -1583,13 +1598,13 @@ function m42Exports(kind){
    rows.push([fila,'3400',mapa,s4,tipo,M43_TYPES[tipo]||'',principal,p?.mara?'SI':'NO',p?.sas?'SI':'NO',M42_CODES.has(principal)?'SI':'NO',relacionado,v?.mara?'SI':'NO',v?.sas?'SI':'NO',M42_CODES.has(relacionado)?'SI':'NO']);
   }
  }else{
-  rows=[['Material','Descripción','Fuente','Marca','Línea','Extensión','Origen MARA','Centro 3401','Plan SAS','Clasificación SAS','MAPA SAS','MAPAS oficiales','S4 oficiales','Tipos oficiales','Roles oficiales','Materiales conectados','Costo USD SAS','Precio Full USD SAS','PVP USD SAS','Stock MB52 libre','Valor MB52 PEN','Tránsito SAS','Demanda SAS']];
-  for(const p of list){const s=p.sasData||{},m=M43_CODE_META.get(p.id);
-   rows.push([p.id,p.name,m43State(p),p.brand,p.line,p.ext,p.origin,M42_CODES.has(p.id)?'SI':'NO',s.plan||'',s.class||'',s.mapSAS||'',m42MapSet(p,0).join(' | '),m42MapSet(p,1).join(' | '),m42MapSet(p,2).join(' | '),m?[...m.roles].join(' | '):'',m42MapSet(p,3).join(' | '),s.cost??'',s.price??'',s.pvp??'',p.stock?.q??'',p.stock?.v??'',s.transit??'',s.demand??'']);
+  rows=[['Material','Descripción','Fuente','Marca','Línea','Extensión','Origen MARA','Centro 3401','Plan SAS','Clasificación SAS','MAPA SAS','MAPAS oficiales','S4 SAP','S4 Mantenedor','Estado S4','Tipos oficiales','Roles oficiales','Materiales conectados','Costo USD SAS','Precio Full USD SAS','PVP USD SAS','Stock MB52 libre','Valor MB52 PEN','Tránsito SAS','Demanda SAS']];
+  for(const p of list){const s=p.sasData||{},m=M43_CODE_META.get(p.id),s4=m431S4(p);
+   rows.push([p.id,p.name,m43State(p),p.brand,p.line,p.ext,p.origin,M42_CODES.has(p.id)?'SI':'NO',s.plan||'',s.class||'',s.mapSAS||'',m42MapSet(p,0).join(' | '),s4.sap,s4.sas,s4.estado,m42MapSet(p,2).join(' | '),m?[...m.roles].join(' | '):'',m42MapSet(p,3).join(' | '),s.cost??'',s.price??'',s.pvp??'',p.stock?.q??'',p.stock?.v??'',s.transit??'',s.demand??'']);
   }
  }
- exportExcel365(rows,{title:kind==='relaciones'?'Relaciones oficiales MAPAS/S4 - sociedad 3400':'Maestro Livianos SAP - conciliación R4.3',
-  file:kind==='relaciones'?'AutoPartsBI_R43_Relaciones_Oficiales':'AutoPartsBI_R43_Maestro_Livianos',summary,filters,
+ exportExcel365(rows,{title:kind==='relaciones'?'Relaciones oficiales MAPAS/S4 - sociedad 3400':'Maestro Livianos SAP - S4 por material R4.3.1',
+  file:kind==='relaciones'?'AutoPartsBI_R431_Relaciones_Oficiales':'AutoPartsBI_R431_Maestro_Livianos',summary,filters,
   source:'MARA Livianos + MAPAS/S4 RAW sociedad 3400 + Mantenedor SAS + MARC 3401',notes});
 }
 function m43Detail(list){
@@ -1607,13 +1622,13 @@ function renderMaestro42(){
  const perPage=30,totalPages=Math.max(1,Math.ceil(list.length/perPage));Q42.pagina=Math.min(Q42.pagina,totalPages);
  const first=(Q42.pagina-1)*perPage,slice=list.slice(first,first+perPage);
  const sel=(label,key,vals)=>m42Options(label,key,[['all','Todos'],...vals.map(x=>[x,x])]);
- const control=`<div class="m42-toolbar"><div class="field m42-search"><label>Buscar código, descripción, MAPA o S4</label><input id="m42Search" type="search" data-m42-search value="${$html(Q42.search)}" placeholder="Código, MAPA, S4, descripción"></div>${m42Options('Centro MARC 3401','centro',[['all','Todos los códigos'],['si','Sí extendido'],['no','No extendido']])}${m42Options('Fuente del material','fuente',[['all','Todos'],['MARA + SAS','MARA y SAS'],['Solo MARA','MARA sin SAS'],['Solo SAS','SAS sin MARA'],['Solo referencia MAPAS','Referenciado sin MARA/SAS']])}${sel('Marca','marca',m42Unique(p=>p.brand))}${sel('Línea','linea',m42Unique(p=>p.line))}${sel('Plan SAS','plan',m42Unique(p=>p.sasData?.plan||'SIN DATO'))}${sel('Origen MARA','origen',m42Unique(p=>p.origin||'SIN DATO'))}${m42Options('Relación oficial','relacion',[['all','Todos'],['si','Con relación oficial'],['no','Sin relación oficial'],['sas_sin_oficial','MAPA SAS sin oficial']])}${m42Options('Tipo oficial','tipo',[['all','Todos'],...Object.entries(M43_TYPES).map(([a,b])=>[a,a+' · '+b])])}</div>`;
+ const control=`<div class="m42-toolbar"><div class="field m42-search"><label>Buscar código, descripción, MAPA o S4</label><input id="m42Search" type="search" data-m42-search value="${$html(Q42.search)}" placeholder="Código, MAPA, S4, descripción"></div>${m42Options('Centro MARC 3401','centro',[['all','Todos los códigos'],['si','Sí extendido'],['no','No extendido']])}${m42Options('Fuente del material','fuente',[['all','Todos'],['MARA + SAS','MARA y SAS'],['Solo MARA','MARA sin SAS'],['Solo SAS','SAS sin MARA'],['Solo referencia MAPAS','Referenciado sin MARA/SAS']])}${sel('Marca','marca',m42Unique(p=>p.brand))}${sel('Línea','linea',m42Unique(p=>p.line))}${sel('Plan SAS','plan',m42Unique(p=>p.sasData?.plan||'SIN DATO'))}${sel('Origen MARA','origen',m42Unique(p=>p.origin||'SIN DATO'))}${sel('Estado S4','estadoS4',['COINCIDE','DIFERENCIA','SIN S4 SAP','SIN S4 MANTENEDOR','SIN AMBOS S4','MÚLTIPLE SAP'])}${m42Options('Relación oficial','relacion',[['all','Todos'],['si','Con relación oficial'],['no','Sin relación oficial'],['sas_sin_oficial','MAPA SAS sin oficial']])}${m42Options('Tipo oficial','tipo',[['all','Todos'],...Object.entries(M43_TYPES).map(([a,b])=>[a,a+' · '+b])])}</div>`;
  const info=available?`<div class="metric-strip">${kpi('Materiales en Maestro',nfmt(M43_ALL.length),'MARA, SAS y referencias')}${kpi('Extendidos 3401',nfmt(count3401),'Cruce MARC', 'c-teal')}${kpi('Relaciones oficiales',nfmt(M43_EDGES.length),'Ambos extremos MAPAS/S4','c-violet')}${kpi('Filtrados',nfmt(list.length),'Exportar todo, no solo página','c-amber')}</div>`:`<div class="callout alert"><strong>R4.3 no verificada.</strong> No se mostrarán códigos hasta conciliar las fuentes.</div>`;
- const trs=slice.map(p=>{const s=p.sasData||{},maps=m42MapSet(p,0),s4=m42MapSet(p,1);
-  return `<tr><td>${M43_KNOWN_IDS.has(p.id)?`<button class="code-link" data-material="${$html(p.id)}">${$html(p.id)}</button>`:m42Cell(p.id)}</td><td class="text-left" title="${$html(p.name)}">${m42Cell(p.name)}</td><td>${m42Cell(m43State(p))}</td><td>${m42Cell(p.brand)}</td><td>${M42_CODES.has(p.id)?'Sí':'No'}</td><td>${m42Cell(s.plan)}</td><td title="${$html(maps.join(' | '))}">${m42Cell(maps.join(' | '))}</td><td title="${$html(s4.join(' | '))}">${m42Cell(s4.join(' | '))}</td><td>${m42Cell(s.mapSAS)}</td><td>${m42Cell(m42MapSet(p,2).join(' | '))}</td></tr>`}).join('');
- return head('Maestro SAP · MAPAS/S4 completos','MARA + Mantenedor SAS + relaciones oficiales de sociedad 3400. Centro 3401 es un filtro independiente.')+
+ const trs=slice.map(p=>{const s=p.sasData||{},maps=m42MapSet(p,0),s4=m431S4(p);
+  return `<tr><td>${M43_KNOWN_IDS.has(p.id)?`<button class="code-link" data-material="${$html(p.id)}">${$html(p.id)}</button>`:m42Cell(p.id)}</td><td class="text-left" title="${$html(p.name)}">${m42Cell(p.name)}</td><td>${m42Cell(m43State(p))}</td><td>${m42Cell(p.brand)}</td><td>${M42_CODES.has(p.id)?'Sí':'No'}</td><td>${m42Cell(s.plan)}</td><td title="${$html(maps.join(' | '))}">${m42Cell(maps.join(' | '))}</td><td>${m42Cell(s4.sap)}</td><td>${m42Cell(s4.sas)}</td><td>${m42Cell(s4.estado)}</td><td>${m42Cell(s.mapSAS)}</td><td>${m42Cell(m42MapSet(p,2).join(' | '))}</td></tr>`}).join('');
+ return head('Maestro SAP · S4 por material','Asignación directa SAP y cod_s4 del Mantenedor SAS, por material exacto. Las diferencias se muestran sin corregir las fuentes.')+
  control+info+`<div class="m42-actions"><button class="secondary-btn" data-m42-export="maestro" ${!available?'disabled':''}>⇩ Exportar maestro completo XLSX</button><button class="secondary-btn" data-m42-export="relaciones" ${!available?'disabled':''}>⇩ Exportar relaciones oficiales XLSX</button><button class="secondary-btn" data-m42-reset="si">Restablecer</button></div>`+
- card('Materiales de Livianos y referencias oficiales','Un código por fila, sin excluir por falta de ficha SAS. Relaciones y tipos oficiales se consultan por ambos extremos.',`<div class="tbl-scroller m42-table"><table class="data-table"><thead><tr>${['Código','Descripción','Fuente','Marca','3401','Plan SAS','MAPA oficial','S4 oficial','MAPA SAS','Tipo oficial'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${trs||'<tr><td colspan="10" class="empty-state">Sin materiales coincidentes.</td></tr>'}</tbody></table></div><div class="table-actions"><span>${nfmt(list.length)} códigos · página ${Q42.pagina} de ${totalPages}</span><span class="pagination"><button class="tiny-btn" data-m42-page="prev" ${Q42.pagina===1?'disabled':''}>Anterior</button><button class="tiny-btn" data-m42-page="next" ${Q42.pagina===totalPages?'disabled':''}>Siguiente</button></span></div>`,'MARA + SAS + MAPAS/S4 RAW + MARC 3401')+
+ card('Materiales de Livianos y referencias oficiales','S4 SAP: únicamente asignación directa. S4 Mantenedor: cod_s4 SAS. Las relaciones MAPA se consultan por ambos extremos, sin copiar S4.',`<div class="tbl-scroller m42-table"><table class="data-table"><thead><tr>${['Código','Descripción','Fuente','Marca','3401','Plan SAS','MAPA oficial','S4 SAP','S4 Mantenedor','Estado S4','MAPA SAS','Tipo oficial'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${trs||'<tr><td colspan="12" class="empty-state">Sin materiales coincidentes.</td></tr>'}</tbody></table></div><div class="table-actions"><span>${nfmt(list.length)} códigos · página ${Q42.pagina} de ${totalPages}</span><span class="pagination"><button class="tiny-btn" data-m42-page="prev" ${Q42.pagina===1?'disabled':''}>Anterior</button><button class="tiny-btn" data-m42-page="next" ${Q42.pagina===totalPages?'disabled':''}>Siguiente</button></span></div>`,'MARA + SAS + MAPAS/S4 RAW + MARC 3401')+
  m43Detail(list)+`<div class="footnote"><span>Referencia MAPAS/S4 no demuestra alta en MARA; relación no equivale a intercambiabilidad.</span><span>Plan solo SAS. 3401 indica extensión MARC, no stock.</span></div>`;
 }
 
@@ -1658,7 +1673,7 @@ function searchFill(q){let x=norm(q);let candidates;if(x){candidates=D.products.
 function onMainClick(e){const btn=e.target.closest('[data-hpick],[data-in-tab],[data-in-page],[data-in-detail],[data-in-export],[data-in-reset],[data-in-month-action],[data-in-month-short],[data-view],[data-month],[data-segment],[data-material],[data-page],[data-tab],[data-action],[data-hist-tab],[data-hist-month],[data-hist-page],[data-hist-product],[data-hist-export],[data-price-tab],[data-price-quick],[data-price-page],[data-price-openmap],[data-price-closemap],[data-price-export],[data-inv-tab],[data-inv-page],[data-inv-currency],[data-inv-reset],[data-inv-drill],[data-inv-export],[data-pe-tab],[data-pe-page],[data-pe-map],[data-pe-reset],[data-pe-export],[data-pe-evidence],[data-pe-quick],[data-month-action],[data-q-tab],[data-q-page],[data-q-save],[data-q-export],[data-q-delete],[data-q-import-trigger],[data-m42-page],[data-m42-export],[data-m42-reset]');if(!btn)return;
  if(btn.dataset.m42Page){Q42.pagina=Math.max(1,Q42.pagina+(btn.dataset.m42Page==='next'?1:-1));render(false);return}
  if(btn.dataset.m42Export){m42Exports(btn.dataset.m42Export);return}
- if(btn.dataset.m42Reset){Object.assign(Q42,{search:'',centro:'all',marca:'all',linea:'all',plan:'all',origen:'all',relacion:'all',fuente:'all',tipo:'all',pagina:1});render(false);return}
+ if(btn.dataset.m42Reset){Object.assign(Q42,{search:'',centro:'all',marca:'all',linea:'all',plan:'all',origen:'all',relacion:'all',fuente:'all',tipo:'all',estadoS4:'all',pagina:1});render(false);return}
 
  if(btn.dataset.hpick){const key=btn.dataset.hpick;HS[key]=btn.dataset.hvalue;HS.detailPage=1;render(false);return;}
  if(btn.dataset.inTab){IG.tab=btn.dataset.inTab;IG.page=1;render(false);return}
